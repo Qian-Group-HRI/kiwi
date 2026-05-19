@@ -1,0 +1,17 @@
+{
+  "remote_ip": "100.68.160.45",
+  "leader_port": "COM4",
+  "robot_id": "my_kiwi",
+  "leader_id": "my_leader",
+  "fps": 30,
+  "episode_time_sec": 3600,
+  "reset_time_sec": 0,
+  "target_episodes": 50,
+  "hf_org": "QianGroup",
+  "hf_repo_name": "lekiwi_test",
+  "task_description": "Default task",
+  "data_dir": "D:\\lerobot_data",
+  "host": "0.0.0.0",
+  "port": 5000,
+  "threads": 16
+}

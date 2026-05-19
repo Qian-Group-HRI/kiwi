@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KCC Recorder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo-mark"></span>
+      <span class="logo-text">KCC Recorder</span>
+      <span class="logo-sub">LeKiwi · LeRobot v3</span>
+    </div>
+    <div class="badges" id="badges">
+      <span class="badge" data-key="state">state: —</span>
+      <span class="badge" data-key="cameras">cameras: —</span>
+      <span class="badge" data-key="dataset">dataset: not initialized</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- LEFT: cameras + log -->
+    <section class="left">
+      <div id="cam-row" class="cam-row">
+        <!-- Camera tiles injected here by app.js based on /status.cameras -->
+      </div>
+
+      <div class="bottom-bar">
+        <div class="rec-indicator" id="rec-indicator">
+          <span class="dot"></span>
+          <span class="rec-text">idle</span>
+        </div>
+        <div class="rec-meta">
+          <span id="rec-timer">00.0s</span>
+          <span class="sep">/</span>
+          <span id="rec-target">—</span>
+          <span class="muted">@ <span id="rec-fps">30</span> fps</span>
+        </div>
+      </div>
+
+      <div class="log-pane">
+        <div class="pane-title">log</div>
+        <div id="log" class="log"></div>
+      </div>
+    </section>
+
+    <!-- RIGHT: CONTROL → EPISODES → DATASET → HUGGINGFACE -->
+    <aside class="right">
+      <!-- Teleop & recording controls (top — most-used) -->
+      <div class="card">
+        <div class="card-title">control</div>
+        <div class="btn-grid">
+          <button id="btn-teleop-on" class="btn-secondary">start teleop <span class="kbd">F7</span></button>
+          <button id="btn-teleop-off" class="btn-secondary">stop teleop <span class="kbd">F7</span></button>
+        </div>
+        <button id="btn-reconnect" class="btn-reconnect big" hidden>RECONNECT HARDWARE</button>
+        <button id="btn-record" class="btn-primary big">START RECORDING <span class="kbd kbd-on-dark">F2</span></button>
+        <button id="btn-stop-record" class="btn-danger big" hidden>STOP RECORDING <span class="kbd kbd-on-dark">F2</span></button>
+        <div class="review-controls" id="review-controls" hidden>
+          <div class="review-title">review — preview shown above</div>
+          <div class="btn-grid review-grid">
+            <button id="btn-save" class="btn-success">save <span class="kbd kbd-on-dark">F3</span></button>
+            <button id="btn-discard" class="btn-danger">discard <span class="kbd kbd-on-dark">F4</span></button>
+            <button id="btn-rerecord" class="btn-secondary">rerecord <span class="kbd">F6</span></button>
+          </div>
+        </div>
+        <div class="hotkey-hint">
+          hotkeys: <span class="kbd">F2</span> rec
+          <span class="kbd">F3</span> save
+          <span class="kbd">F4</span> discard
+          <span class="kbd">F6</span> rerec
+          <span class="kbd">F7</span> teleop
+          <span class="kbd">F8</span>/<span class="kbd">F9</span> counter
+        </div>
+      </div>
+
+      <!-- Episode counter -->
+      <div class="card">
+        <div class="card-title">episodes</div>
+        <div class="counter-row">
+          <div class="counter-block">
+            <div class="lbl">done</div>
+            <input id="episodes_done" type="number" min="0" value="0">
+          </div>
+          <div class="counter-divider">/</div>
+          <div class="counter-block">
+            <div class="lbl">target</div>
+            <input id="target_episodes" type="number" min="1" value="50">
+          </div>
+        </div>
+        <div class="progress">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <div class="row split">
+          <button id="btn-set-count" class="btn-secondary">set done</button>
+          <button id="btn-set-target" class="btn-secondary">set target</button>
+        </div>
+        <div class="row">
+          <label class="lbl">next episode number (resume from a specific episode)</label>
+          <div class="row split">
+            <input id="next_episode" type="number" min="1" value="1">
+            <button id="btn-set-next" class="btn-secondary">set next</button>
+          </div>
+        </div>
+        <div class="hint">use "set next" to resume — sets done = next - 1.</div>
+      </div>
+
+      <!-- Dataset / settings (init done early in session, then ignored) -->
+      <div class="card">
+        <div class="card-title">dataset</div>
+        <div class="row">
+          <label class="lbl">org</label>
+          <input id="hf_org" type="text" value="QianGroup" autocomplete="off">
+        </div>
+        <div class="row">
+          <label class="lbl">repo name</label>
+          <input id="hf_repo_name" type="text" value="lekiwi_test" autocomplete="off">
+        </div>
+        <div class="row">
+          <label class="lbl">task</label>
+          <input id="task_description" type="text" value="Default task" autocomplete="off">
+        </div>
+        <div class="row">
+          <button id="btn-apply" class="btn-secondary">apply settings</button>
+          <button id="btn-init" class="btn-primary">init dataset</button>
+        </div>
+        <div class="hint">init creates the dataset folder. one-time per session.</div>
+      </div>
+
+      <!-- Push -->
+      <div class="card">
+        <div class="card-title">huggingface</div>
+        <button id="btn-push" class="btn-primary">push to hub</button>
+        <div class="hint">finalizes &amp; uploads. do this only after recording is done.</div>
+      </div>
+    </aside>
+  </main>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
