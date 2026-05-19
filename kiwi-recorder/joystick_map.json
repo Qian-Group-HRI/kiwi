@@ -1,0 +1,22 @@
+{
+  "deadzone": 0.15,
+  "poll_hz": 30,
+  "axes": {
+    "0": {
+      "neg": "a",
+      "pos": "d",
+      "label": "Strafe L/R"
+    },
+    "1": {
+      "neg": "w",
+      "pos": "s",
+      "label": "Forward/Back"
+    },
+    "2": {
+      "neg": "z",
+      "pos": "x",
+      "label": "Rotate"
+    }
+  },
+  "buttons": {}
+}

@@ -36,7 +36,7 @@ button{font-family:inherit;cursor:pointer}input{font-family:inherit}
 .ph{display:flex;align-items:baseline;justify-content:space-between;padding:4px 8px;font-family:var(--m);font-size:8px;text-transform:uppercase;letter-spacing:0.08em;color:var(--mu);border-bottom:1px solid var(--l2);flex-shrink:0}
 .ps{font-size:7px;color:var(--fn)}
 .pn canvas{flex:1;min-height:0;padding:2px 4px}
-.a3d{flex:1;min-height:0;background:#EDE8E2;cursor:grab;border-radius:0 0 4px 4px}.a3d:active{cursor:grabbing}
+.a3d{flex:1;min-height:0;background:#EDE8E2;cursor:default;border-radius:0 0 4px 4px}.a3d:active{cursor:defaultbing}
 
 /* RIGHT — 3 windows + log */
 .R{display:flex;flex-direction:column;gap:6px;padding:6px;border-left:1px solid var(--ln);background:linear-gradient(180deg,var(--cd),#E6E1DB);overflow-y:auto}
@@ -86,7 +86,7 @@ button:hover:not(:disabled){background:#fff}button:active:not(:disabled){transfo
 .k{display:inline-block;font-family:var(--m);font-size:7px;font-weight:600;padding:0 3px;border-radius:2px;background:var(--bg);color:var(--i2);border:1px solid var(--ln);margin:0 1px}
 .kw{display:inline-block;font-family:var(--m);font-size:7px;font-weight:600;padding:0 3px;border-radius:2px;background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.2);margin-left:3px}
 
-/* KCC15: Gamepad Config Modal */
+
 .gp-badge{cursor:pointer;transition:all 0.15s}
 .gp-badge:hover{background:var(--ab);border-color:var(--ac)}
 .gp-badge.connected{border-color:var(--g);color:var(--g);background:var(--gb)}
@@ -118,3 +118,44 @@ button:hover:not(:disabled){background:#fff}button:active:not(:disabled){transfo
 .gp-wizard-hint{font-family:var(--m);font-size:11px;color:var(--mu);margin-bottom:16px}
 .gp-wizard-waiting{font-family:var(--m);font-size:12px;color:var(--o);animation:gpulse 1s ease-in-out infinite}
 .gp-preset{font-family:var(--m);font-size:10px;color:var(--g);padding:6px 8px;background:var(--gb);border-radius:4px;margin-bottom:8px;text-align:center}
+
+/* KCC Gamepad Mapper */
+.mapper-popup{background:var(--sf,#FAF8F5);border:1px solid var(--ln,#CEC5B8);border-radius:10px;width:720px;max-width:95vw;max-height:88vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.18);display:flex;flex-direction:column}
+.mapper-hdr{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--l2,#DDD6CC);background:var(--c2,#F5F3EF)}
+.mapper-title{font-family:var(--m);font-size:13px;font-weight:700}
+.mapper-device{font-family:var(--m);font-size:10px;color:var(--mu,#8A8278);flex:1;text-align:right}
+.mapper-close{border:none;background:none;font-size:18px;cursor:pointer;color:var(--mu);padding:4px 8px;border-radius:4px}
+.mapper-close:hover{background:var(--l2)}
+.mapper-body{display:grid;grid-template-columns:280px 1fr;flex:1;overflow:hidden}
+.mapper-visual{padding:12px;display:flex;align-items:center;justify-content:center;border-right:1px solid var(--l2,#DDD6CC);background:var(--c2,#F5F3EF)}
+.mapper-canvas{width:260px;height:360px;border-radius:6px}
+.mapper-config{padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.mapper-section{}
+.mapper-sh{font-family:var(--m);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--mu);margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--l2)}
+.mapper-list{display:flex;flex-direction:column;gap:3px}
+.mapper-row{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;background:var(--c2,#F5F3EF);border-radius:5px;font-family:var(--m);font-size:11px;transition:background 0.12s}
+.mapper-row:hover{background:var(--l2,#DDD6CC)}
+.mapper-row-label{color:var(--ink,#1A1612);font-weight:500;display:flex;align-items:center;gap:6px}
+.mapper-row-value{color:var(--ac,#3D348B);font-weight:600;font-size:10px}
+.mapper-row-remap{font-size:9px;padding:2px 8px;border:1px solid var(--ln);border-radius:3px;background:var(--sf);cursor:pointer;margin-left:6px;color:var(--mu)}
+.mapper-row-remap:hover{background:#fff;color:var(--ink)}
+.mapper-row.active{background:var(--ab,#EDEAFF);border:1px solid var(--ac)}
+.mapper-row .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.mapper-row .dot.off{background:var(--ln)}.mapper-row .dot.on{background:var(--g,#3D7C52)}
+.axis-bar{width:60px;height:6px;background:var(--l2);border-radius:3px;overflow:visible;position:relative}
+.axis-fill{height:100%;border-radius:3px;position:absolute;top:0}
+.axis-fill.pos{background:var(--ac);left:50%}.axis-fill.neg{background:var(--o,#A06D1B);right:50%}
+.mapper-actions{display:flex;gap:6px;margin-top:auto;padding-top:8px;border-top:1px solid var(--l2)}
+.mapper-btn{flex:1;padding:8px;font-size:11px;font-weight:500;border:1px solid var(--ln);background:var(--c2);border-radius:5px;cursor:pointer;font-family:var(--m)}
+.mapper-btn:hover{background:#fff}
+.mapper-btn-ac{background:var(--ac,#3D348B);color:#fff;border-color:var(--ac)}.mapper-btn-ac:hover{background:var(--a2,#5548B5)}
+.mapper-note{font-family:var(--m);font-size:9px;color:var(--mu);text-align:center;padding-top:6px}
+.mapper-wizard{position:absolute;inset:0;background:rgba(250,248,245,0.95);display:flex;align-items:center;justify-content:center;border-radius:10px}
+.wiz-content{text-align:center;padding:30px}
+.wiz-label{font-family:var(--m);font-size:11px;color:var(--mu);margin-bottom:4px}
+.wiz-action{font-family:var(--m);font-size:20px;font-weight:700;color:var(--ac);margin-bottom:8px}
+.wiz-progress{font-family:var(--m);font-size:10px;color:var(--mu);margin-bottom:16px}
+.wiz-hint{font-family:var(--m);font-size:12px;color:var(--o);margin-bottom:20px;animation:wizpulse 1.5s ease-in-out infinite}
+@keyframes wizpulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.wiz-btns{display:flex;gap:8px;justify-content:center}
+.wiz-btns .mapper-btn{flex:none;width:100px}

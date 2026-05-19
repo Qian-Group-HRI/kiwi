@@ -162,6 +162,23 @@ from lerobot.utils.feature_utils import hw_to_dataset_features
 
 logger = logging.getLogger("kcc.recorder")
 
+# KCC-FIX: global offline patch — prevent ALL HuggingFace Hub calls
+try:
+    from lerobot.datasets import utils as _ds_utils
+    _orig_get_safe = getattr(_ds_utils, 'get_safe_version', None)
+    if _orig_get_safe:
+        _ds_utils.get_safe_version = lambda repo_id, version: version
+        logger.info("KCC: Hub calls disabled (offline mode)")
+except Exception as _e:
+    logger.warning(f"KCC: offline patch failed: {_e}")
+
+# Also patch huggingface_hub if present
+try:
+    import huggingface_hub
+    huggingface_hub.constants.HF_HUB_OFFLINE = True
+except Exception:
+    pass
+
 
 class State(str, Enum):
     DISCONNECTED = "disconnected"
@@ -260,6 +277,8 @@ class Recorder:
         self._last_obs_time = 0.0       # last successful observation timestamp
         self._watchdog_timeout = 10.0   # seconds before declaring stuck
         self._session_start = time.time()
+        self._last_telemetry = [0]*9
+        self._joystick_axes = [0, 0, 0]  # live joint data for 3D viz
 
     # ------------------------------------------------------------------
     # State helpers
@@ -657,8 +676,15 @@ class Recorder:
     def _tick_idle(self):
         """Robot connected but motionless. Just keep observations flowing so cameras stay fresh."""
         try:
-            self.robot.get_observation()
-            self._last_obs_time = time.time()  # KCC-PROD: heartbeat
+            obs = self.robot.get_observation()
+            self._last_obs_time = time.time()
+            # Store observation state for telemetry
+            try:
+                if obs and 'observation.state' in obs:
+                    st = obs['observation.state']
+                    self._last_telemetry = st.tolist() if hasattr(st, 'tolist') else list(st)
+            except Exception:
+                pass  # KCC-PROD: heartbeat
         except Exception as e:
             self._log(f"observation read failed in idle: {e}")
             # KCC-PROD: observation timeout detection (Ch.8)
@@ -671,9 +697,30 @@ class Recorder:
         """One iteration of leader → arm + keyboard → base."""
         self.robot.get_observation()
         arm_action = self.leader_arm.get_action()
+        # Store for live 3D visualization
+        try:
+            vals = list(arm_action.values())
+            if len(vals) >= 6:
+                self._last_telemetry = vals[:6] + self._last_telemetry[6:]
+        except Exception:
+            pass
         arm_action = {f"arm_{k}": v for k, v in arm_action.items()}
-        keys = self.keyboard.get_action()
-        base_action = self.robot._from_keyboard_to_base_action(keys)
+
+        # Base: joystick axes OR keyboard
+        joy = getattr(self, '_joystick_axes', [0, 0, 0])
+        joy_active = any(abs(a) > 0.08 for a in joy)
+        if joy_active:
+            import math
+            speed = 200
+            jx, jy, jr = joy[0]*speed, -joy[1]*speed, (joy[2] if len(joy)>2 else 0)*speed*0.5
+            base_action = {
+                "base_left_wheel": -jx*0.5 + jy*0.866 + jr,
+                "base_back_wheel": jx + jr,
+                "base_right_wheel": -jx*0.5 - jy*0.866 + jr,
+            }
+        else:
+            keys = self.keyboard.get_action()
+            base_action = self.robot._from_keyboard_to_base_action(keys)
         action = {**arm_action, **base_action} if base_action else arm_action
         self.robot.send_action(action)
 

@@ -73,6 +73,8 @@ DEFAULT_CONFIG = RecorderConfig(
 
 app = Flask(__name__)
 recorder = Recorder(DEFAULT_CONFIG)
+
+# Built-in joystick mapper (replaces AntiMicro)
 recorder.start()
 
 # Lock to serialize JPEG re-encoding so we don't spawn unbounded encoder load
@@ -303,32 +305,97 @@ def audit():
     return jsonify({"ok": True, "entries": []})
 
 # ── KCC14-v7: Telemetry endpoint for live arm visualization ──
+
+
+
+# Built-in AntiMicro: joystick axes → keyboard key simulation
+_joy_kb = None
+_joy_pressed = set()
+
+def _joy_init():
+    global _joy_kb
+    if _joy_kb is None:
+        try:
+            from pynput.keyboard import Controller
+            _joy_kb = Controller()
+        except Exception as e:
+            logging.warning(f"pynput keyboard not available: {e}")
+
+@app.route("/joystick", methods=["POST"])
+def joystick():
+    """Simulate keyboard presses from joystick axes."""
+    global _joy_pressed
+    _joy_init()
+    if _joy_kb is None:
+        return jsonify({"ok": False, "error": "pynput not available"})
+
+    data = request.get_json(force=True) or {}
+    axes = data.get("axes", [0, 0, 0, 0, 0, 0])
+    mapping = data.get("axis_map", {})
+    deadzone = data.get("deadzone", 0.15)
+
+    # Determine which keys should be pressed
+    should_press = set()
+    for axis_idx_str, keys in mapping.items():
+        axis_idx = int(axis_idx_str)
+        if axis_idx >= len(axes):
+            continue
+        val = axes[axis_idx]
+        neg_key = keys.get("neg", "")
+        pos_key = keys.get("pos", "")
+        if val < -deadzone and neg_key:
+            should_press.add(neg_key)
+        elif val > deadzone and pos_key:
+            should_press.add(pos_key)
+
+    # Release keys that should no longer be pressed
+    for key in _joy_pressed - should_press:
+        try:
+            _joy_kb.release(key)
+        except Exception:
+            pass
+
+    # Press keys that should be pressed
+    for key in should_press - _joy_pressed:
+        try:
+            _joy_kb.press(key)
+        except Exception:
+            pass
+
+    _joy_pressed = should_press
+    return jsonify({"ok": True})
+
+
+# ── Joystick mapper API ──
+@app.route("/joystick/state")
+def joystick_state():
+    """Current joystick axes + buttons for UI display."""
+    state = joy_mapper.get_state()
+    if state:
+        return jsonify({"ok": True, **state, "config": joy_mapper.get_config()})
+    return jsonify({"ok": False})
+
+@app.route("/joystick/config", methods=["GET", "POST"])
+def joystick_config():
+    if request.method == "GET":
+        return jsonify({"ok": True, "config": joy_mapper.get_config()})
+    data = request.get_json(force=True) or {}
+    if "axes" in data:
+        joy_mapper.mapping["axes"] = data["axes"]
+    if "deadzone" in data:
+        joy_mapper.mapping["deadzone"] = data["deadzone"]
+    if "buttons" in data:
+        joy_mapper.mapping["buttons"] = data["buttons"]
+    joy_mapper.save_config()
+    return jsonify({"ok": True})
+
 @app.route("/telemetry")
 def telemetry():
-    """Return current robot joint state for live arm viz."""
+    """Return current joint state for live 3D arm visualization."""
     try:
-        if recorder.robot is None:
-            return jsonify({"ok": False})
-        # Try to get latest observation state from robot
-        obs = None
-        if hasattr(recorder.robot, 'last_observation') and recorder.robot.last_observation:
-            obs = recorder.robot.last_observation
-        elif hasattr(recorder.robot, '_last_observation') and recorder.robot._last_observation:
-            obs = recorder.robot._last_observation
-
-        if obs and 'observation.state' in obs:
-            state = obs['observation.state']
-            if hasattr(state, 'tolist'):
-                state = state.tolist()
-            return jsonify({"ok": True, "state": state})
-
-        # Fallback: try to read from robot's internal state
-        if hasattr(recorder.robot, 'get_state'):
-            state = recorder.robot.get_state()
-            if hasattr(state, 'tolist'):
-                state = state.tolist()
-            return jsonify({"ok": True, "state": state})
-
+        data = getattr(recorder, '_last_telemetry', None)
+        if data and any(v != 0 for v in data):
+            return jsonify({"ok": True, "state": data})
         return jsonify({"ok": False})
     except Exception:
         return jsonify({"ok": False})

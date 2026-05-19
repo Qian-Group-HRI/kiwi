@@ -7,97 +7,120 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
   <header class="hdr">
     <div class="hl"><span class="dot"></span><b>KCC Recorder</b><span class="sub">LeKiwi · LeRobot v3</span></div>
-    <div class="hr" id="badges"><span class="bd" data-key="state">—</span><span class="bd" data-key="cameras">—</span><span class="bd" data-key="dataset">—</span><span class="bd gp-badge" data-key="gamepad" id="gp-badge" title="Click to configure gamepad" onclick="gpOpenModal()">🎮 —</span></div>
+    <div class="hr" id="badges">
+      <span class="bd" data-key="state">—</span>
+      <span class="bd" data-key="cameras">—</span>
+      <span class="bd" data-key="dataset">—</span>
+      <span class="bd gp-badge" data-key="gamepad" id="gp-badge" onclick="gpOpenModal()">🎮 none</span>
+    </div>
   </header>
   <div class="page">
-    <!-- LEFT -->
     <div class="L">
       <div class="cams" id="cam-row"></div>
       <div class="btm">
-        <div class="pn cpn"><div class="ph">action trace<span class="ps">last episode</span></div><canvas id="action-chart"></canvas></div>
-        <div class="pn apn"><div class="ph">arm pose<span class="ps">drag orbit · scroll zoom</span></div><div id="arm-ct" class="a3d"></div></div>
+        <div class="pn cpn">
+          <div class="ph">action trace · live<span class="ps">6 joints · rolling 5s</span></div>
+          <canvas id="action-chart"></canvas>
+        </div>
+        <div class="pn apn">
+          <div class="ph">arm pose<span class="ps" id="telem-status">waiting for data...</span></div>
+          <canvas id="arm-viz" class="a3d"></canvas>
+        </div>
       </div>
     </div>
-    <!-- RIGHT: 3 windows + log -->
     <div class="R">
-      <!-- W1: CONTROL -->
-      <div class="win">
-        <div class="wh">control</div>
-        <div class="wb">
-          <div class="g2"><button id="btn-tl-on" class="bs">teleop on <span class="k">T</span></button><button id="btn-tl-off" class="bs">teleop off</button></div>
-          <button id="btn-rec" class="bm brec">● REC <span class="kw">Space</span></button>
-          <button id="btn-stop" class="bm bstp" hidden>■ STOP <span class="kw">Space</span></button>
-          <button id="btn-recon" class="bm brcn" hidden>↻ RECONNECT</button>
-          <div id="rv" hidden>
-            <div class="rvl">review</div>
-            <div class="g3"><button id="btn-sav" class="bsg">SAVE<span class="kw">↵</span></button><button id="btn-dis" class="bsr">DISC<span class="kw">Esc</span></button><button id="btn-redo" class="bso">REDO<span class="kw">R</span></button></div>
+      <div class="sec">
+        <div class="sh">control</div>
+        <div class="g2"><button id="btn-tl-on" class="bs">teleop on <span class="k">T</span></button><button id="btn-tl-off" class="bs">teleop off</button></div>
+        <button id="btn-rec" class="bm brec">▶ START RECORDING <span class="kw">Space</span></button>
+        <button id="btn-stop" class="bm bstp">■ STOP RECORDING <span class="kw">Esc</span></button>
+        <button id="btn-recon" class="bm brcn" hidden>↻ RECONNECT</button>
+        <div id="rv" hidden>
+          <div class="rvl">review</div>
+          <div class="g3"><button id="btn-sav" class="bsg">SAVE<span class="kw">↵</span></button><button id="btn-dis" class="bsr">DISC<span class="kw">Esc</span></button><button id="btn-redo" class="bso">REDO<span class="kw">R</span></button></div>
+        </div>
+        <div class="kh"><span class="k">Space</span>rec <span class="k">↵</span>save <span class="k">Esc</span>disc <span class="k">R</span>redo <span class="k">T</span>teleop <span class="k">V</span>verify <span class="k">I</span>init</div>
+      </div>
+      <div class="sec">
+        <div class="sh">dataset loader</div>
+        <input id="hf_org" class="si" value="QianGroup" placeholder="org">
+        <input id="hf_repo" class="si" value="lekiwi_test" placeholder="repo">
+        <input id="hf_task" class="si" value="Default task" placeholder="task">
+        <div class="g2"><button id="btn-apl" class="bx">apply</button><button id="btn-ini" class="bx bac">init dataset <span class="k">I</span></button></div>
+        <div class="sep"></div>
+        <div class="epr"><input id="ep_done" type="number" min="0" value="0" class="epn"><span class="eps">/</span><input id="ep_tgt" type="number" min="1" value="50" class="epn"></div>
+        <div class="bar"><div id="pf" class="bf"></div></div>
+        <div class="g2"><button id="btn-sd" class="bx">set done</button><button id="btn-st" class="bx">set target</button></div>
+        <div class="g2"><input id="ep_nxt" type="number" min="1" value="1" class="si"><button id="btn-sn" class="bx">set next</button></div>
+      </div>
+      <div class="sec ins">
+        <div class="sh">data verifier</div>
+        <div class="ir"><span class="il">episodes</span><span id="i-ep" class="iv">—</span></div>
+        <div class="ir"><span class="il">frames</span><span id="i-fr" class="iv">—</span></div>
+        <div class="ir"><span class="il">last ep</span><span id="i-dur" class="iv">—</span></div>
+        <div class="ir"><span class="il">arm range</span><span id="i-arm" class="iv">—</span></div>
+        <div class="ir"><span class="il">wheels</span><span id="i-wh" class="iv">—</span></div>
+        <div class="ir"><span class="il">entanglement</span><span id="i-ent" class="iv">—</span></div>
+        <div class="ir"><span class="il">parquet</span><span id="i-pq" class="iv">—</span></div>
+        <div class="ir"><span class="il">videos</span><span id="i-vid" class="iv">—</span></div>
+        <button id="btn-ver" class="bx" style="margin-top:3px;width:100%">verify dataset <span class="k">V</span></button>
+      </div>
+      <div class="sec wlog">
+        <div class="wh"><span>log</span><span class="log-acts"><button id="btn-lc" class="bl" onclick="copyLog()">📋</button><button id="btn-le" class="bl" onclick="exportLog()">💾</button></span></div>
+        <div class="log-st"><span id="ri" class="ri"><span class="rd"></span><span class="rt">idle</span></span><span id="rm" class="rm">0.0s · 0/50</span></div>
+        <div id="log" class="lb"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gamepad Mapper Modal -->
+  <div id="gp-modal" class="gp-overlay" style="display:none" onclick="if(event.target===this)gpCloseModal()">
+    <div class="mapper-popup">
+      <div class="mapper-hdr">
+        <span class="mapper-title">🎮 Gamepad Mapper</span>
+        <span id="mapper-device" class="mapper-device">No gamepad</span>
+        <button class="mapper-close" onclick="gpCloseModal()">✕</button>
+      </div>
+      <div class="mapper-body">
+        <div class="mapper-visual">
+          <canvas id="mapper-canvas" class="mapper-canvas"></canvas>
+        </div>
+        <div class="mapper-config">
+          <div class="mapper-section">
+            <div class="mapper-sh">Axes (live)</div>
+            <div id="mapper-axes" class="mapper-list"></div>
           </div>
-          <div class="kh"><span class="k">Space</span>rec <span class="k">↵</span>save <span class="k">Esc</span>disc <span class="k">R</span>redo <span class="k">T</span>teleop <span class="k">V</span>verify <span class="k">I</span>init</div>
-          
+          <div class="mapper-section">
+            <div class="mapper-sh">Buttons → Actions</div>
+            <div id="mapper-buttons" class="mapper-list"></div>
+          </div>
+          <div class="mapper-actions">
+            <button class="mapper-btn mapper-btn-ac" onclick="gpStartWiz()">Remap All</button>
+            <button class="mapper-btn" onclick="gpDefaults();gpSave(gpNm);gpRenderMapper()">Reset Default</button>
+            <button class="mapper-btn" onclick="gpCloseModal()">Done</button>
+          </div>
+          <div class="mapper-note">⌨ Keyboard always works. Gamepad is additional input.</div>
         </div>
       </div>
-      <!-- W2: DATASET LOADER -->
-      <div class="win">
-        <div class="wh">dataset loader</div>
-        <div class="wb">
-          <input id="hf_org" class="si" value="QianGroup" placeholder="org">
-          <input id="hf_repo" class="si" value="lekiwi_test" placeholder="repo">
-          <input id="hf_task" class="si" value="Default task" placeholder="task">
-          <div class="g2"><button id="btn-apl" class="bx">apply</button><button id="btn-ini" class="bx bac">init dataset <span class="k">I</span></button></div>
-          <div class="sep"></div>
-          <div class="epr"><input id="ep_done" type="number" min="0" value="0" class="epn"><span class="eps">/</span><input id="ep_tgt" type="number" min="1" value="50" class="epn"></div>
-          <div class="bar"><div id="pf" class="bf"></div></div>
-          <div class="g2"><button id="btn-sd" class="bx">set done</button><button id="btn-st" class="bx">set target</button></div>
-          <div class="g2"><input id="ep_nxt" type="number" min="1" value="1" class="si"><button id="btn-sn" class="bx">set next</button></div>
-        </div>
-      </div>
-      <!-- W3: DATA VERIFIER -->
-      <div class="win">
-        <div class="wh">data verifier</div>
-        <div class="wb">
-          <div class="ir"><span class="il">episodes</span><span id="i-ep" class="iv">—</span></div>
-          <div class="ir"><span class="il">frames</span><span id="i-fr" class="iv">—</span></div>
-          <div class="ir"><span class="il">last ep</span><span id="i-dur" class="iv">—</span></div>
-          <div class="ir"><span class="il">arm range</span><span id="i-arm" class="iv">—</span></div>
-          <div class="ir"><span class="il">wheels</span><span id="i-wh" class="iv">—</span></div>
-          <div class="ir"><span class="il">entanglement</span><span id="i-ent" class="iv">—</span></div>
-          <div class="ir"><span class="il">parquet</span><span id="i-pq" class="iv">—</span></div>
-          <div class="ir"><span class="il">videos</span><span id="i-vid" class="iv">—</span></div>
-          <button id="btn-ver" class="bx" style="margin-top:3px;width:100%">verify dataset <span class="k">V</span></button>
-        </div>
-      </div>
-      <!-- W4: LOG -->
-      <div class="win wlog">
-        <div class="wh">
-          <span>log</span>
-          <span class="log-acts"><button id="btn-lc" class="bl" title="copy">📋</button><button id="btn-le" class="bl" title="export">💾</button></span>
-        </div>
-        <div class="wb wlb">
-          <div class="log-st"><span id="ri" class="ri"><span class="rd"></span><span class="rt">idle</span></span><span id="rm" class="rm">0.0s · 0/50</span></div>
-          <div id="log" class="lb"></div>
+      <div id="mapper-wizard" class="mapper-wizard" style="display:none">
+        <div class="wiz-content">
+          <div class="wiz-label" id="wiz-label">Press button for:</div>
+          <div class="wiz-action" id="wiz-action">Start Recording</div>
+          <div class="wiz-progress" id="wiz-progress">1 / 9</div>
+          <div class="wiz-hint">Push the gamepad button you want to assign</div>
+          <div class="wiz-btns">
+            <button class="mapper-btn" onclick="gpWizSkip()">Skip</button>
+            <button class="mapper-btn" onclick="gpWizCancel()">Cancel</button>
+          </div>
         </div>
       </div>
     </div>
   </div>
+
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-
-<!-- KCC15: Gamepad Config Modal -->
-<div id="gp-modal" class="gp-overlay" style="display:none" onclick="if(event.target===this)gpCloseModal()">
-  <div class="gp-popup">
-    <div class="gp-popup-hdr">
-      <span>🎮 Gamepad Configuration</span>
-      <button id="gp-close" class="gp-x" onclick="gpCloseModal()">✕</button>
-    </div>
-    <div id="gp-popup-body" class="gp-popup-body">
-      <div class="gp-no">No gamepad detected. Connect a gamepad and press any button.</div>
-    </div>
-  </div>
-</div>
-
 </body>
 </html>
