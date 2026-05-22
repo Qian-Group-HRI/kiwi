@@ -16,7 +16,6 @@ Routes:
   POST /rerecord               → review → re-record this episode
   POST /skip_reset             → reset → recording
   POST /set_episode_count      → manually override episodes_done
-  POST /push_to_hub            → push the dataset
   GET  /camera/<name>.mjpg     → MJPEG stream of one camera
   POST /shutdown               → clean exit
 
@@ -240,10 +239,6 @@ def set_next_episode():
     return jsonify({"ok": True})
 
 
-# KCC14: HuggingFace push removed — fully local workflow
-# @app.route("/push_to_hub") — disabled
-
-
 @app.route("/reconnect", methods=["POST"])
 def reconnect():
     recorder.cmd_reconnect()
@@ -308,19 +303,6 @@ def audit():
 
 
 
-# Built-in AntiMicro: joystick axes → keyboard key simulation
-_joy_kb = None
-_joy_pressed = set()
-
-def _joy_init():
-    global _joy_kb
-    if _joy_kb is None:
-        try:
-            from pynput.keyboard import Controller
-            _joy_kb = Controller()
-        except Exception as e:
-            logging.warning(f"pynput keyboard not available: {e}")
-
 @app.route("/joystick", methods=["POST"])
 def joystick():
     """Simulate keyboard presses from joystick axes."""
@@ -366,15 +348,6 @@ def joystick():
     return jsonify({"ok": True})
 
 
-# ── Joystick mapper API ──
-@app.route("/joystick/state")
-def joystick_state():
-    """Current joystick axes + buttons for UI display."""
-    state = joy_mapper.get_state()
-    if state:
-        return jsonify({"ok": True, **state, "config": joy_mapper.get_config()})
-    return jsonify({"ok": False})
-
 @app.route("/joystick/config", methods=["GET", "POST"])
 def joystick_config():
     if request.method == "GET":
@@ -389,6 +362,22 @@ def joystick_config():
     joy_mapper.save_config()
     return jsonify({"ok": True})
 
+
+# Base speed control
+_base_speed = 1.0
+
+@app.route("/speed", methods=["GET", "POST"])
+def speed():
+    global _base_speed
+    if request.method == "POST":
+        data = request.get_json(force=True) or {}
+        if "delta" in data:
+            _base_speed = max(0.3, min(2.0, _base_speed + data["delta"]))
+        elif "value" in data:
+            _base_speed = max(0.3, min(2.0, data["value"]))
+        return jsonify({"ok": True, "speed": _base_speed})
+    return jsonify({"ok": True, "speed": _base_speed})
+
 @app.route("/telemetry")
 def telemetry():
     """Return current joint state for live 3D arm visualization."""
@@ -400,107 +389,285 @@ def telemetry():
     except Exception:
         return jsonify({"ok": False})
 
-# ── KCC14: Dataset stats endpoint for data inspector ──
+# ── Dataset stats endpoint ──
+
+def _dataset_root():
+    """Local path of the active dataset."""
+    from pathlib import Path
+    return Path(recorder.config.data_dir) / recorder.config.hf_org / recorder.config.hf_repo_name
+
+
+def _action_to_matrix(series):
+    """Convert a pandas Series of action values to a 2D numpy array (N, D).
+
+    LeRobot v3 stores 'action' as one column containing per-frame array values.
+    This handles numpy arrays, lists, and tuples uniformly.
+    """
+    import numpy as np
+    return np.asarray([np.asarray(a, dtype=float) for a in series.values])
+
+
+def _compute_episode_stats(actions):
+    """Compute arm range, wheel activity, and entanglement E from an actions matrix.
+
+    actions: ndarray of shape (N, D) where D >= 9.
+             cols 0..5 = arm joints, cols 6..8 = wheel velocities.
+    Returns a dict with the three metrics. Returns Nones if shape is wrong.
+    """
+    import numpy as np
+    if actions.ndim != 2 or actions.shape[1] < 9 or len(actions) < 2:
+        return {"arm_range": None, "wheel_range": None,
+                "wheels_still": None, "entanglement": None}
+
+    arm = actions[:, :6]
+    wheels = actions[:, 6:9]
+
+    arm_range = f"{arm.min():.1f} to {arm.max():.1f}"
+    wmax = float(np.abs(wheels).max())
+    wheel_range = f"max={wmax:.4f}"
+    wheels_still = wmax < 0.01
+
+    # Entanglement E = fraction of frames where arm AND wheels are both active.
+    # arm "moving" = any joint changed by >0.5 units between consecutive frames.
+    # wheel "moving" = any wheel velocity magnitude >0.01.
+    arm_moving = np.any(np.abs(np.diff(arm, axis=0)) > 0.5, axis=1)
+    wheel_moving = np.any(np.abs(wheels[1:]) > 0.01, axis=1)
+    E = float(np.mean(arm_moving & wheel_moving))
+
+    return {
+        "arm_range": arm_range,
+        "wheel_range": wheel_range,
+        "wheels_still": bool(wheels_still),
+        "entanglement": round(E, 4),
+    }
+
+
 @app.route("/dataset_stats")
 def dataset_stats():
-    """Return dataset metrics for the in-page data inspector."""
-    import json as _j
-    import numpy as _np
-    from pathlib import Path as _P
+    """Return dataset statistics — works fully offline from local files."""
+    try:
+        if not recorder.dataset_initialized:
+            return jsonify({"ok": False, "error": "no dataset"})
+        
+        import numpy as np
+        from pathlib import Path
+        
+        data_dir = Path(recorder.config.data_dir)
+        repo_id = f"{recorder.config.hf_org}/{recorder.config.hf_repo_name}"
+        root = data_dir / repo_id
+        
+        result = {"ok": True}
+        
+        # Episode count
+        result["total_episodes"] = recorder.episodes_done
+        
+        # Read parquet files
+        parquet_dir = root / "data"
+        parquet_files = sorted(parquet_dir.glob("**/*.parquet")) if parquet_dir.exists() else []
+        result["parquet_ok"] = len(parquet_files) > 0
+        
+        # Video files
+        video_dir = root / "videos"
+        video_files = sorted(video_dir.glob("**/*.mp4")) if video_dir.exists() else []
+        result["videos_ok"] = len(video_files) > 0
+        
+        total_frames = 0
+        all_actions = []
+        last_ep_frames = 0
+        
+        if parquet_files:
+            try:
+                import pandas as pd
+                for pf in parquet_files:
+                    try:
+                        df = pd.read_parquet(pf)
+                        total_frames += len(df)
+                        last_ep_frames = len(df)
+                        
+                        # Collect actions — LeRobot v3 stores as array column
+                        if 'action' in df.columns:
+                            raw = df['action'].values
+                            actions = np.stack([np.array(a) for a in raw])
+                            all_actions.append(actions)
+                        if 'observation.state' in df.columns:
+                            raw_s = df['observation.state'].values
+                            all_states = np.stack([np.array(a) for a in raw_s])
+                    except Exception as pe:
+                        logging.warning(f"Error reading {pf}: {pe}")
+            except ImportError:
+                pass
+        
+        result["total_frames"] = total_frames
+        result["last_ep_duration"] = round(last_ep_frames / max(recorder.config.fps, 1), 1) if last_ep_frames > 0 else None
+        
+        # Arm range + wheel activity + entanglement from actions
+        if all_actions:
+            try:
+                actions = np.concatenate(all_actions, axis=0)
+                if actions.shape[1] >= 9:
+                    arm = actions[:, :6]
+                    wheels = actions[:, 6:]
+                    
+                    # Arm range
+                    arm_min = arm.min(axis=0)
+                    arm_max = arm.max(axis=0)
+                    result["arm_range"] = f"{arm_min.min():.1f} to {arm_max.max():.1f}"
+                    
+                    # Wheels
+                    wheel_activity = np.abs(wheels).max()
+                    result["wheel_range"] = f"max={wheel_activity:.2f}"
+                    result["wheels_still"] = float(wheel_activity) < 0.5
+                    
+                    # Entanglement E
+                    arm_vel = np.abs(np.diff(arm, axis=0))
+                    base_vel = np.abs(wheels[1:])
+                    arm_on = arm_vel.max(axis=1) > 0.5
+                    base_on = base_vel.max(axis=1) > 0.1
+                    entangled = (arm_on & base_on).sum()
+                    total = len(arm_on)
+                    E = round(float(entangled / total), 4) if total > 0 else 0.0
+                    result["entanglement"] = E
+                elif actions.shape[1] >= 6:
+                    arm = actions[:, :6]
+                    arm_min = arm.min(axis=0)
+                    arm_max = arm.max(axis=0)
+                    result["arm_range"] = f"{arm_min.min():.1f} to {arm_max.max():.1f}"
+                    result["entanglement"] = 0.0
+                    result["wheels_still"] = True
+                    result["wheel_range"] = "N/A"
+            except Exception as ae:
+                logging.warning(f"Action analysis error: {ae}")
+        
+        # Last episode actions for chart
+        if all_actions and len(all_actions[-1]) > 0:
+            last = all_actions[-1]
+            result["last_ep_actions"] = last.tolist()
+        
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"dataset_stats error: {e}")
+        return jsonify({"ok": False, "error": str(e)})
+
+
+def dataset_stats():
+    """Return live metrics about the current dataset on disk.
+
+    Reads:
+      - meta/info.json for canonical episode/frame counts and fps
+      - all parquet shards under data/**/ for actions (globbed, not hardcoded)
+      - all camera dirs under videos/ for presence and size
+
+    Last-episode metrics (arm range, wheel activity, entanglement E) are computed
+    from the parquet shard that contains max(episode_index), which may be any
+    file in v3 layout — not necessarily file-000.parquet.
+    """
+    import json
+    import numpy as np
+    from pathlib import Path
 
     result = {"ok": False}
 
     try:
-        org = recorder.config.hf_org
-        repo = recorder.config.hf_repo_name
-        root = _P(r"D:\lerobot_data") / org / repo
-
+        root = _dataset_root()
         info_path = root / "meta" / "info.json"
         if not info_path.exists():
+            result["error"] = "dataset not initialized (no meta/info.json)"
             return jsonify(result)
 
-        meta = _j.loads(info_path.read_text())
-        result["total_episodes"] = meta.get("total_episodes", 0)
-        result["total_frames"] = meta.get("total_frames", 0)
-        result["fps"] = meta.get("fps", 30)
+        meta = json.loads(info_path.read_text())
+        result["total_episodes"] = int(meta.get("total_episodes", 0) or 0)
+        result["total_frames"] = int(meta.get("total_frames", 0) or 0)
+        result["fps"] = int(meta.get("fps", 30) or 30)
 
-        # Read last episode actions from parquet
-        pq_path = root / "data" / "chunk-000" / "file-000.parquet"
-        result["parquet_ok"] = pq_path.exists()
+        # Parquet inventory — all shards, not just chunk-000/file-000
+        data_dir = root / "data"
+        parquet_files = sorted(data_dir.rglob("*.parquet")) if data_dir.exists() else []
+        result["parquet_ok"] = len(parquet_files) > 0
+        result["parquet_files"] = len(parquet_files)
 
-        # Check videos
+        # Video inventory — same multi-shard treatment
         vid_base = root / "videos"
         vid_ok = True
         vid_sizes = []
         if vid_base.exists():
-            for cam_dir in vid_base.iterdir():
-                if cam_dir.is_dir() and cam_dir.name.startswith("observation"):
-                    chunk = cam_dir / "chunk-000"
-                    if chunk.exists():
-                        vids = list(chunk.glob("*.mp4"))
-                        if vids:
-                            sz = vids[-1].stat().st_size / (1024*1024)
-                            vid_sizes.append(f"{cam_dir.name.split('.')[-1]}:{sz:.1f}MB")
-                        else:
-                            vid_ok = False
-                    else:
-                        vid_ok = False
+            for cam_dir in sorted(vid_base.iterdir()):
+                if not (cam_dir.is_dir() and cam_dir.name.startswith("observation")):
+                    continue
+                vids = list(cam_dir.rglob("*.mp4"))
+                if not vids:
+                    vid_ok = False
+                    continue
+                last_vid = max(vids, key=lambda p: p.stat().st_mtime)
+                sz_mb = last_vid.stat().st_size / (1024 * 1024)
+                cam_label = cam_dir.name.split(".")[-1]
+                vid_sizes.append(f"{cam_label}:{sz_mb:.1f}MB")
+        else:
+            vid_ok = False
         result["videos_ok"] = vid_ok
         result["video_sizes"] = " ".join(vid_sizes)
 
-        # Parse actions if parquet exists
-        if pq_path.exists():
-            import pandas as _pd
-            df = _pd.read_parquet(pq_path)
-            if "action" in df.columns and len(df) > 0:
-                # Last episode only
-                last_ep = df["episode_index"].max()
-                ep_df = df[df["episode_index"] == last_ep]
-                actions = _np.array([list(a) for a in ep_df["action"]])
+        # Per-episode metrics from the parquet shard containing the latest episode.
+        result["last_ep_frames"] = None
+        result["last_ep_duration"] = None
+        result["arm_range"] = None
+        result["wheel_range"] = None
+        result["wheels_still"] = None
+        result["entanglement"] = None
+        result["last_ep_actions"] = []
 
-                result["last_ep_frames"] = len(ep_df)
-                result["last_ep_duration"] = len(ep_df) / max(result["fps"], 1)
+        if parquet_files:
+            import pandas as pd
 
-                # Arm range (cols 0-5)
-                arm = actions[:, :6]
-                result["arm_range"] = f"{arm.min():.1f} to {arm.max():.1f}"
+            # Find which shard holds the latest episode. Scan shards in reverse
+            # mtime order so we usually hit it on the first try.
+            #
+            # Robustness: LeRobot may be actively writing to a parquet file when
+            # we read (e.g. during save_episode, or via streaming encoding).
+            # Mid-write reads raise pyarrow.lib.ArrowInvalid ("Parquet magic
+            # bytes not found in footer"). We skip such files quietly — the
+            # next monitor tick will catch them once the write completes.
+            target_df = None
+            target_ep = -1
+            for pf in sorted(parquet_files, key=lambda p: p.stat().st_mtime, reverse=True):
+                try:
+                    df = pd.read_parquet(pf, columns=["episode_index"])
+                except Exception:
+                    continue  # file being written, corrupted, or has different schema
+                if "episode_index" not in df.columns or len(df) == 0:
+                    continue
+                shard_max = int(df["episode_index"].max())
+                if shard_max > target_ep:
+                    target_ep = shard_max
+                    # Re-read the full shard. Same try/except — if it fails
+                    # mid-read, leave target_df None and the caller renders
+                    # the "no last episode" path.
+                    try:
+                        target_df = pd.read_parquet(pf)
+                    except Exception:
+                        target_df = None
+                    break  # mtime-latest is almost always the winner
 
-                # Wheel range (cols 6-8)
-                wheels = actions[:, 6:]
-                wmax = float(_np.abs(wheels).max())
-                result["wheel_range"] = f"max={wmax:.4f}"
-                result["wheels_still"] = wmax < 0.01
-
-                # Entanglement E
-                if len(actions) > 1:
-                    arm_moving = _np.any(_np.abs(_np.diff(arm, axis=0)) > 0.5, axis=1)
-                    wheel_moving = _np.any(_np.abs(wheels[1:]) > 0.01, axis=1)
-                    E = float(_np.mean(arm_moving & wheel_moving))
-                    result["entanglement"] = E
-                else:
-                    result["entanglement"] = None
-
-                # Sampled actions for chart (every Nth frame)
-                step = max(1, len(actions) // 150)
-                result["last_ep_actions"] = actions[::step].tolist()
-            else:
-                result["last_ep_duration"] = None
-                result["arm_range"] = None
-                result["wheel_range"] = None
-                result["wheels_still"] = None
-                result["entanglement"] = None
-                result["last_ep_actions"] = []
-        else:
-            result["last_ep_duration"] = None
-            result["arm_range"] = None
-            result["wheel_range"] = None
-            result["wheels_still"] = None
-            result["entanglement"] = None
-            result["last_ep_actions"] = []
+            if target_df is not None and "action" in target_df.columns:
+                ep_df = target_df[target_df["episode_index"] == target_ep]
+                if len(ep_df) > 0:
+                    try:
+                        actions = _action_to_matrix(ep_df["action"])
+                        result["last_ep_frames"] = len(ep_df)
+                        result["last_ep_duration"] = round(len(ep_df) / max(result["fps"], 1), 2)
+                        result.update(_compute_episode_stats(actions))
+                        # Down-sample actions for the UI chart (~150 points max)
+                        step = max(1, len(actions) // 150)
+                        result["last_ep_actions"] = actions[::step].tolist()
+                    except Exception as ex:
+                        # Action column schema can vary between LeRobot versions.
+                        # Don't fail the whole endpoint over one bad shard.
+                        logging.warning(f"last-episode stats failed: {ex}")
 
         result["ok"] = True
     except Exception as ex:
         result["error"] = str(ex)
+        import traceback as _tb
+        logging.error(_tb.format_exc())
 
     return jsonify(result)
 

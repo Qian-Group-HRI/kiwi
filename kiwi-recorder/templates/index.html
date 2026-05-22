@@ -5,122 +5,153 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>KCC Recorder</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="/static/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header class="hdr">
     <div class="hl"><span class="dot"></span><b>KCC Recorder</b><span class="sub">LeKiwi · LeRobot v3</span></div>
-    <div class="hr" id="badges">
+    <div class="hr">
       <span class="bd" data-key="state">—</span>
       <span class="bd" data-key="cameras">—</span>
       <span class="bd" data-key="dataset">—</span>
-      <span class="bd gp-badge" data-key="gamepad" id="gp-badge" onclick="gpOpenModal()">🎮 none</span>
+      <span class="bd" id="speed-badge">1.0x</span>
+      <span class="bd ctrl-btn" id="ctrl-badge" onclick="toggleControls()">⌨</span>
     </div>
   </header>
+
   <div class="page">
+    <!-- LEFT: cameras + bottom panels -->
     <div class="L">
       <div class="cams" id="cam-row"></div>
       <div class="btm">
-        <div class="pn cpn">
+        <div class="pn chart-pn">
           <div class="ph">action trace · live<span class="ps">6 joints · rolling 5s</span></div>
           <canvas id="action-chart"></canvas>
         </div>
-        <div class="pn apn">
-          <div class="ph">arm pose<span class="ps" id="telem-status">waiting for data...</span></div>
+        <div class="pn arm-pn">
+          <div class="ph">arm pose<span class="ps" id="telem-status">waiting...</span></div>
           <canvas id="arm-viz" class="a3d"></canvas>
         </div>
+        <div class="pn log-pn">
+          <div class="ph">log<span class="ps"><button class="bl" onclick="copyLog()">📋</button><button class="bl" onclick="exportLog()">💾</button></span></div>
+          <div class="log-st"><span id="ri" class="ri"><span class="rd"></span><span class="rt">idle</span></span><span id="rm" class="rm">0.0s · 0/50</span></div>
+          <div id="log" class="lb"></div>
+        </div>
       </div>
     </div>
+
+    <!-- RIGHT: 3 panels -->
     <div class="R">
-      <div class="sec">
-        <div class="sh">control</div>
-        <div class="g2"><button id="btn-tl-on" class="bs">teleop on <span class="k">T</span></button><button id="btn-tl-off" class="bs">teleop off</button></div>
-        <button id="btn-rec" class="bm brec">▶ START RECORDING <span class="kw">Space</span></button>
-        <button id="btn-stop" class="bm bstp">■ STOP RECORDING <span class="kw">Esc</span></button>
-        <button id="btn-recon" class="bm brcn" hidden>↻ RECONNECT</button>
-        <div id="rv" hidden>
-          <div class="rvl">review</div>
-          <div class="g3"><button id="btn-sav" class="bsg">SAVE<span class="kw">↵</span></button><button id="btn-dis" class="bsr">DISC<span class="kw">Esc</span></button><button id="btn-redo" class="bso">REDO<span class="kw">R</span></button></div>
+      <!-- Panel 1: Control -->
+      <div class="win">
+        <div class="win-h">Control</div>
+        <div class="win-b">
+          <div class="g2"><button id="btn-tl-on" class="bs">teleop on <span class="k">T</span></button><button id="btn-tl-off" class="bs">teleop off</button></div>
+          <button id="btn-rec" class="bm brec">● REC <span class="kw">Space</span></button>
+          <button id="btn-recon" class="bm brcn" hidden>↻ RECONNECT <span class="kw">C</span></button>
+          <div id="rv" hidden>
+            <div class="g2"><button id="btn-sav" class="bsg">SAVE <span class="kw">↵</span></button><button id="btn-dis" class="bsr">DISCARD <span class="kw">Esc</span></button></div>
+          </div>
+          <div class="kh"><span class="k">Space</span>rec <span class="k">↵</span>save <span class="k">Esc</span>disc <span class="k">T</span>teleop <span class="k">R</span>spd+ <span class="k">F</span>spd- <span class="k">V</span>verify <span class="k">I</span>init <span class="k">C</span>reconn</div>
         </div>
-        <div class="kh"><span class="k">Space</span>rec <span class="k">↵</span>save <span class="k">Esc</span>disc <span class="k">R</span>redo <span class="k">T</span>teleop <span class="k">V</span>verify <span class="k">I</span>init</div>
       </div>
-      <div class="sec">
-        <div class="sh">dataset loader</div>
-        <input id="hf_org" class="si" value="QianGroup" placeholder="org">
-        <input id="hf_repo" class="si" value="lekiwi_test" placeholder="repo">
-        <input id="hf_task" class="si" value="Default task" placeholder="task">
-        <div class="g2"><button id="btn-apl" class="bx">apply</button><button id="btn-ini" class="bx bac">init dataset <span class="k">I</span></button></div>
-        <div class="sep"></div>
-        <div class="epr"><input id="ep_done" type="number" min="0" value="0" class="epn"><span class="eps">/</span><input id="ep_tgt" type="number" min="1" value="50" class="epn"></div>
-        <div class="bar"><div id="pf" class="bf"></div></div>
-        <div class="g2"><button id="btn-sd" class="bx">set done</button><button id="btn-st" class="bx">set target</button></div>
-        <div class="g2"><input id="ep_nxt" type="number" min="1" value="1" class="si"><button id="btn-sn" class="bx">set next</button></div>
-      </div>
-      <div class="sec ins">
-        <div class="sh">data verifier</div>
-        <div class="ir"><span class="il">episodes</span><span id="i-ep" class="iv">—</span></div>
-        <div class="ir"><span class="il">frames</span><span id="i-fr" class="iv">—</span></div>
-        <div class="ir"><span class="il">last ep</span><span id="i-dur" class="iv">—</span></div>
-        <div class="ir"><span class="il">arm range</span><span id="i-arm" class="iv">—</span></div>
-        <div class="ir"><span class="il">wheels</span><span id="i-wh" class="iv">—</span></div>
-        <div class="ir"><span class="il">entanglement</span><span id="i-ent" class="iv">—</span></div>
-        <div class="ir"><span class="il">parquet</span><span id="i-pq" class="iv">—</span></div>
-        <div class="ir"><span class="il">videos</span><span id="i-vid" class="iv">—</span></div>
-        <button id="btn-ver" class="bx" style="margin-top:3px;width:100%">verify dataset <span class="k">V</span></button>
-      </div>
-      <div class="sec wlog">
-        <div class="wh"><span>log</span><span class="log-acts"><button id="btn-lc" class="bl" onclick="copyLog()">📋</button><button id="btn-le" class="bl" onclick="exportLog()">💾</button></span></div>
-        <div class="log-st"><span id="ri" class="ri"><span class="rd"></span><span class="rt">idle</span></span><span id="rm" class="rm">0.0s · 0/50</span></div>
-        <div id="log" class="lb"></div>
-      </div>
-    </div>
-  </div>
 
-  <!-- Gamepad Mapper Modal -->
-  <div id="gp-modal" class="gp-overlay" style="display:none" onclick="if(event.target===this)gpCloseModal()">
-    <div class="mapper-popup">
-      <div class="mapper-hdr">
-        <span class="mapper-title">🎮 Gamepad Mapper</span>
-        <span id="mapper-device" class="mapper-device">No gamepad</span>
-        <button class="mapper-close" onclick="gpCloseModal()">✕</button>
-      </div>
-      <div class="mapper-body">
-        <div class="mapper-visual">
-          <canvas id="mapper-canvas" class="mapper-canvas"></canvas>
-        </div>
-        <div class="mapper-config">
-          <div class="mapper-section">
-            <div class="mapper-sh">Axes (live)</div>
-            <div id="mapper-axes" class="mapper-list"></div>
-          </div>
-          <div class="mapper-section">
-            <div class="mapper-sh">Buttons → Actions</div>
-            <div id="mapper-buttons" class="mapper-list"></div>
-          </div>
-          <div class="mapper-actions">
-            <button class="mapper-btn mapper-btn-ac" onclick="gpStartWiz()">Remap All</button>
-            <button class="mapper-btn" onclick="gpDefaults();gpSave(gpNm);gpRenderMapper()">Reset Default</button>
-            <button class="mapper-btn" onclick="gpCloseModal()">Done</button>
-          </div>
-          <div class="mapper-note">⌨ Keyboard always works. Gamepad is additional input.</div>
+      <!-- Panel 2: Dataset Loader -->
+      <div class="win">
+        <div class="win-h">Dataset Loader</div>
+        <div class="win-b">
+          <input id="hf_org" class="si" value="QianGroup" placeholder="org">
+          <input id="hf_repo" class="si" value="lekiwi_test" placeholder="repo">
+          <input id="hf_task" class="si" value="Default task" placeholder="task">
+          <div class="g2"><button id="btn-apl" class="bx">apply</button><button id="btn-ini" class="bx bac">init dataset <span class="k">I</span></button></div>
+          <div class="epr"><input id="ep_done" type="number" min="0" value="0" class="epn"><span class="eps">/</span><input id="ep_tgt" type="number" min="1" value="50" class="epn"></div>
+          <div class="bar"><div id="pf" class="bf"></div></div>
+          <div class="g2"><button id="btn-sd" class="bx">set done</button><button id="btn-st" class="bx">set target</button></div>
+          <div class="g2"><input id="ep_nxt" type="number" min="1" value="1" class="si sn"><button id="btn-sn" class="bx">set next</button></div>
         </div>
       </div>
-      <div id="mapper-wizard" class="mapper-wizard" style="display:none">
-        <div class="wiz-content">
-          <div class="wiz-label" id="wiz-label">Press button for:</div>
-          <div class="wiz-action" id="wiz-action">Start Recording</div>
-          <div class="wiz-progress" id="wiz-progress">1 / 9</div>
-          <div class="wiz-hint">Push the gamepad button you want to assign</div>
-          <div class="wiz-btns">
-            <button class="mapper-btn" onclick="gpWizSkip()">Skip</button>
-            <button class="mapper-btn" onclick="gpWizCancel()">Cancel</button>
+
+      <!-- Panel 3: Data Verifier -->
+      <div class="win">
+        <div class="win-h">Data Verifier</div>
+        <div class="win-b">
+          <!-- Entanglement metric ON TOP -->
+          <div class="ent-card" id="ent-card">
+            <div class="ent-header">ENTANGLEMENT METRIC</div>
+            <div class="ent-value" id="i-ent">—</div>
+            <div class="ent-rec" id="ent-rec">Record 10 episodes to compute</div>
+            <div class="ent-bar"><div class="ent-fill" id="ent-fill"></div><div class="ent-marker" id="ent-marker"></div></div>
+            <div class="ent-scale"><span>0.0</span><span style="color:#2EA85A">SPLIT</span><span>0.3</span><span style="color:#D4953A">TEST</span><span>0.5</span><span style="color:#E05A47">E2E</span><span>1.0</span></div>
           </div>
+          <!-- Stats below -->
+          <div class="ir"><span class="il">episodes</span><span id="i-ep" class="iv">—</span></div>
+          <div class="ir"><span class="il">frames</span><span id="i-fr" class="iv">—</span></div>
+          <div class="ir"><span class="il">last ep</span><span id="i-dur" class="iv">—</span></div>
+          <div class="ir"><span class="il">arm range</span><span id="i-arm" class="iv">—</span></div>
+          <div class="ir"><span class="il">wheels</span><span id="i-wh" class="iv">—</span></div>
+          <div class="ir"><span class="il">parquet</span><span id="i-pq" class="iv">—</span></div>
+          <div class="ir"><span class="il">videos</span><span id="i-vid" class="iv">—</span></div>
+          
         </div>
       </div>
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <!-- Controls Popup -->
+  <div id="ctrl-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:999;align-items:center;justify-content:center" onclick="if(event.target===this)toggleControls()">
+    <div style="background:#FAF8F5;border-radius:10px;padding:24px;max-width:520px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.2);font-family:'JetBrains Mono',monospace">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <span style="font-size:15px;font-weight:700">⌨ Controls</span>
+        <button onclick="toggleControls()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button>
+      </div>
+      <div style="font-size:10px;text-transform:uppercase;color:#8A8278;letter-spacing:0.1em;margin:12px 0 6px">Recording</div>
+      <div style="display:grid;grid-template-columns:60px 1fr;gap:4px 12px;font-size:12px">
+        <span style="background:#EDEAFF;color:#3D348B;padding:2px 8px;border-radius:3px;text-align:center;font-weight:600">Space</span><span>Toggle recording (start/stop)</span>
+        <span style="background:#EDEAFF;color:#3D348B;padding:2px 8px;border-radius:3px;text-align:center;font-weight:600">Enter</span><span>Save episode</span>
+        <span style="background:#EDEAFF;color:#3D348B;padding:2px 8px;border-radius:3px;text-align:center;font-weight:600">Esc</span><span>Discard episode</span>
+      </div>
+      <div style="font-size:10px;text-transform:uppercase;color:#8A8278;letter-spacing:0.1em;margin:12px 0 6px">Teleop & Speed</div>
+      <div style="display:grid;grid-template-columns:60px 1fr;gap:4px 12px;font-size:12px">
+        <span style="background:#EDEAFF;color:#3D348B;padding:2px 8px;border-radius:3px;text-align:center;font-weight:600">T</span><span>Toggle teleop on/off</span>
+        <span style="background:#EDEAFF;color:#3D348B;padding:2px 8px;border-radius:3px;text-align:center;font-weight:600">R</span><span>Speed up base (+10%)</span>
+        <span style="background:#EDEAFF;color:#3D348B;padding:2px 8px;border-radius:3px;text-align:center;font-weight:600">F</span><span>Slow down base (-10%)</span>
+      </div>
+      <div style="font-size:10px;text-transform:uppercase;color:#8A8278;letter-spacing:0.1em;margin:12px 0 6px">Base Movement (via AntiMicro)</div>
+      <div style="display:flex;justify-content:center;gap:4px;margin:8px 0">
+        <div style="display:grid;grid-template-columns:40px 40px 40px;grid-template-rows:40px 40px 40px;gap:4px">
+          <div></div><div style="background:#E8E4DE;border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#3D348B">W</div><div></div>
+          <div style="background:#E8E4DE;border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#3D348B">A</div><div style="background:#E8E4DE;border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#3D348B">S</div><div style="background:#E8E4DE;border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#3D348B">D</div>
+          <div style="background:#E8E4DE;border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;color:#A06D1B">Z</div><div style="font-size:8px;color:#999;display:flex;align-items:center;justify-content:center">rot</div><div style="background:#E8E4DE;border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;color:#A06D1B">X</div>
+        </div>
+      </div>
+      <div style="font-size:10px;text-transform:uppercase;color:#8A8278;letter-spacing:0.1em;margin:12px 0 6px">Dataset & System</div>
+      <div style="display:grid;grid-template-columns:60px 1fr;gap:4px 12px;font-size:12px">
+        <span style="background:#EDEAFF;color:#3D348B;padding:2px 8px;border-radius:3px;text-align:center;font-weight:600">I</span><span>Init dataset</span>
+        <span style="background:#EDEAFF;color:#3D348B;padding:2px 8px;border-radius:3px;text-align:center;font-weight:600">V</span><span>Verify dataset</span>
+        <span style="background:#EDEAFF;color:#3D348B;padding:2px 8px;border-radius:3px;text-align:center;font-weight:600">C</span><span>Reconnect hardware</span>
+      </div>
+      <div style="font-size:10px;text-transform:uppercase;color:#8A8278;letter-spacing:0.1em;margin:12px 0 6px">🎮 AntiMicro Mapping</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">
+        <div><div style="font-size:9px;color:#8A8278;margin-bottom:4px;font-weight:600">AXES</div>
+          <div style="display:grid;grid-template-columns:60px 25px 25px;gap:2px 4px">
+            <span style="color:#888">Axis 1</span><span style="background:#EDEAFF;color:#3D348B;padding:1px 4px;border-radius:3px;text-align:center;font-weight:600;font-size:10px">A</span><span style="background:#EDEAFF;color:#3D348B;padding:1px 4px;border-radius:3px;text-align:center;font-weight:600;font-size:10px">D</span>
+            <span style="color:#888">Axis 2</span><span style="background:#EDEAFF;color:#3D348B;padding:1px 4px;border-radius:3px;text-align:center;font-weight:600;font-size:10px">W</span><span style="background:#EDEAFF;color:#3D348B;padding:1px 4px;border-radius:3px;text-align:center;font-weight:600;font-size:10px">S</span>
+            <span style="color:#888">Axis 3</span><span style="background:#EDEAFF;color:#A06D1B;padding:1px 4px;border-radius:3px;text-align:center;font-weight:600;font-size:10px">Z</span><span style="background:#EDEAFF;color:#A06D1B;padding:1px 4px;border-radius:3px;text-align:center;font-weight:600;font-size:10px">X</span>
+          </div>
+        </div>
+        <div><div style="font-size:9px;color:#8A8278;margin-bottom:4px;font-weight:600">BUTTONS</div>
+          <div style="display:grid;grid-template-columns:50px 30px;gap:2px 4px;font-size:10px">
+            <span style="color:#888">Btn 1</span><span style="background:#E8E4DE;padding:1px 4px;border-radius:3px;text-align:center">F2</span>
+            <span style="color:#888">Btn 2</span><span style="background:#E8E4DE;padding:1px 4px;border-radius:3px;text-align:center">F3</span>
+            <span style="color:#888">Btn 3</span><span style="background:#E8E4DE;padding:1px 4px;border-radius:3px;text-align:center">F4</span>
+            <span style="color:#888">Btn 4</span><span style="background:#E8E4DE;padding:1px 4px;border-radius:3px;text-align:center">F7</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
 </body>
 </html>

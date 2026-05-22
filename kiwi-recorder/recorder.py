@@ -801,6 +801,9 @@ class Recorder:
 
     def _do_record_episode(self):
         """Run the official record_loop for one episode, then go to review."""
+        try:
+            if self.keyboard and not self.keyboard.is_connected: self.keyboard.connect()
+        except: pass
         self._events["exit_early"] = False
         self._events["rerecord_episode"] = False
         self.episode_start_time = time.perf_counter()
